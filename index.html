@@ -105,7 +105,7 @@
         }
 
         .market-card.mega .chart-container {
-            height: 280px;
+            height: 350px;
         }
 
         .market-card.mega .market-title {
@@ -1007,9 +1007,26 @@
             const ctx = document.getElementById(canvasId);
             if (!ctx) return;
 
-            const labels = series.markets.map(m => m.dateStr);
+            // Shorten date labels (e.g., "Mar 9" instead of "March 9, 2026")
+            const labels = series.markets.map(m => {
+                const d = m.dateStr;
+                // Try to parse and format shorter
+                try {
+                    const date = new Date(d);
+                    if (!isNaN(date)) {
+                        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    }
+                } catch(e) {}
+                // Fallback: shorten manually
+                return d.replace(/,?\s*2026/, '').replace(/uary/g, '').replace(/ember/g, '').replace(/tember/, '').replace(/ober/, '');
+            });
             const yesData = series.markets.map(m => m.yesPrice * 100);
             const noData = series.markets.map(m => m.noPrice * 100);
+            const volumes = series.markets.map(m => m.volumeNum || 0);
+
+            // Scale point sizes by volume (min 3, max 12)
+            const maxVol = Math.max(...volumes, 1);
+            const pointSizes = volumes.map(v => 3 + (v / maxVol) * 9);
 
             new Chart(ctx, {
                 type: 'line',
@@ -1024,10 +1041,10 @@
                             borderWidth: 2,
                             fill: true,
                             tension: 0.3,
-                            pointRadius: 4,
-                            pointHoverRadius: 7,
+                            pointRadius: pointSizes,
+                            pointHoverRadius: pointSizes.map(s => s + 3),
                             pointBackgroundColor: '#5cb85c',
-                            pointBorderColor: '#fff',
+                            pointBorderColor: '#0a0f0a',
                             pointBorderWidth: 2
                         },
                         {
@@ -1038,10 +1055,10 @@
                             borderWidth: 2,
                             fill: true,
                             tension: 0.3,
-                            pointRadius: 4,
-                            pointHoverRadius: 7,
+                            pointRadius: pointSizes,
+                            pointHoverRadius: pointSizes.map(s => s + 3),
                             pointBackgroundColor: '#c9302c',
-                            pointBorderColor: '#fff',
+                            pointBorderColor: '#0a0f0a',
                             pointBorderWidth: 2
                         }
                     ]
@@ -1078,8 +1095,17 @@
                             padding: 12,
                             displayColors: true,
                             callbacks: {
-                                title: (items) => `By ${items[0].label}`,
-                                label: (item) => ` ${item.dataset.label}: ${item.parsed.y.toFixed(1)}%`
+                                title: (items) => {
+                                    const idx = items[0].dataIndex;
+                                    const market = series.markets[idx];
+                                    return `By ${market.dateStr}`;
+                                },
+                                label: (item) => ` ${item.dataset.label}: ${item.parsed.y.toFixed(1)}%`,
+                                afterBody: (items) => {
+                                    const idx = items[0].dataIndex;
+                                    const vol = volumes[idx];
+                                    return `\n Volume: ${formatVolume(vol)}`;
+                                }
                             }
                         }
                     },
@@ -1087,14 +1113,16 @@
                         x: {
                             display: true,
                             grid: {
-                                color: 'rgba(26, 36, 26, 0.5)',
+                                color: 'rgba(26, 36, 26, 0.3)',
                                 drawBorder: false
                             },
                             ticks: {
-                                font: { family: 'JetBrains Mono', size: 9 },
-                                color: '#5a6a5a',
-                                maxRotation: 45,
-                                minRotation: 45
+                                font: { family: 'JetBrains Mono', size: 10 },
+                                color: '#8a9a8a',
+                                maxRotation: 60,
+                                minRotation: 45,
+                                autoSkip: false,
+                                padding: 5
                             }
                         },
                         y: {
