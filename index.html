@@ -574,11 +574,26 @@
             return labels[category] || category;
         }
 
-        // Fetch with CORS proxy
+        // Fetch with CORS proxy (with fallbacks)
         async function fetchWithProxy(url) {
-            const response = await fetch(CORS_PROXY + encodeURIComponent(url));
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            return response.json();
+            const proxies = [
+                'https://api.allorigins.win/raw?url=',
+                'https://corsproxy.io/?',
+                ''
+            ];
+            
+            for (const proxy of proxies) {
+                try {
+                    const fullUrl = proxy ? proxy + encodeURIComponent(url) : url;
+                    const response = await fetch(fullUrl);
+                    if (response.ok) {
+                        return response.json();
+                    }
+                } catch (e) {
+                    console.warn(`Proxy failed: ${proxy || 'direct'}`, e.message);
+                }
+            }
+            throw new Error('All proxies failed');
         }
 
         // Fetch price history for a market
@@ -628,9 +643,9 @@
         // Fetch all markets including restricted ones
         async function fetchMarkets() {
             try {
-                // Fetch regular markets
+                // Fetch regular markets (smaller batch to avoid 413)
                 const data = await fetchWithProxy(
-                    `${API_BASE}/markets?limit=300&active=true&closed=false`
+                    `${API_BASE}/markets?limit=100&active=true&closed=false`
                 );
 
                 // Filter for stock-market relevant markets (min $2M volume)
