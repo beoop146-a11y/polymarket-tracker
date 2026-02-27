@@ -631,25 +631,22 @@
         const RESTRICTED_EVENTS = [
             'us-strikes-iran-by',
             'israel-strikes-iran-by',
-            'iran-strikes-israel-by',
-            'us-iran-war',
-            'iran-nuclear',
-            'israel-iran-war',
-            'china-invades-taiwan',
-            'russia-nato-war',
-            'north-korea-attack'
+            'iran-strikes-israel-by'
         ];
 
-        // Fetch all markets including restricted ones
+        // Fetch all markets including restricted ones - FAST parallel loading
         async function fetchMarkets() {
             try {
-                // Fetch regular markets (smaller batch to avoid 413)
-                const data = await fetchWithProxy(
-                    `${API_BASE}/markets?limit=100&active=true&closed=false`
-                );
+                // Fetch everything in parallel
+                const [regularData, ...eventResults] = await Promise.all([
+                    fetchWithProxy(`${API_BASE}/markets?limit=100&active=true&closed=false`).catch(() => []),
+                    ...RESTRICTED_EVENTS.map(slug => 
+                        fetchWithProxy(`${API_BASE}/events?slug=${slug}&active=true`).catch(() => [])
+                    )
+                ]);
 
-                // Filter for stock-market relevant markets (min $2M volume)
-                let regularMarkets = data.filter(market => 
+                // Filter regular markets (min $2M volume)
+                let regularMarkets = (regularData || []).filter(market => 
                     market.active && 
                     !market.closed &&
                     (market.volumeNum || 0) >= 2000000 &&
@@ -657,24 +654,17 @@
                     !EXCLUDE_KEYWORDS.test(market.question)
                 );
 
-                // Fetch restricted event markets
+                // Extract restricted event markets
                 let restrictedMarkets = [];
-                for (const eventSlug of RESTRICTED_EVENTS) {
-                    try {
-                        const eventData = await fetchWithProxy(
-                            `${API_BASE}/events?slug=${eventSlug}&active=true`
-                        );
-                        if (eventData && eventData[0] && eventData[0].markets) {
-                            // Show ALL restricted event markets (no volume filter)
-                            const eventMarkets = eventData[0].markets
-                                .filter(m => m.active && !m.closed)
-                                .sort((a, b) => (b.volumeNum || 0) - (a.volumeNum || 0));
-                            restrictedMarkets = restrictedMarkets.concat(eventMarkets);
-                        }
-                    } catch (e) {
-                        console.warn(`Failed to fetch event ${eventSlug}:`, e);
+                eventResults.forEach(eventData => {
+                    if (eventData && eventData[0] && eventData[0].markets) {
+                        const eventMarkets = eventData[0].markets
+                            .filter(m => m.active && !m.closed)
+                            .sort((a, b) => (b.volumeNum || 0) - (a.volumeNum || 0))
+                            .slice(0, 8); // Top 8 per series
+                        restrictedMarkets = restrictedMarkets.concat(eventMarkets);
                     }
-                }
+                });
 
                 // Combine and dedupe
                 marketsData = [...regularMarkets, ...restrictedMarkets];
@@ -926,10 +916,10 @@
                 });
             });
 
-            // Load charts
-            for (let i = 0; i < marketsData.length; i++) {
-                await loadChartForMarket(i, '1w');
-            }
+            // Load charts in parallel (non-blocking)
+            Promise.all(
+                marketsData.map((_, i) => loadChartForMarket(i, '1w'))
+            );
         }
 
         // Load chart for a specific market
