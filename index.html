@@ -99,18 +99,43 @@
             gap: 20px;
         }
 
-        /* Mega card for event series - full width */
-        .market-card.mega {
+        /* Group header for event series */
+        .series-header {
             grid-column: 1 / -1;
-            max-width: 100%;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 20px;
         }
 
-        .market-card.mega .chart-container {
-            height: 400px;
+        .series-header:first-child {
+            margin-top: 0;
         }
 
-        .market-card.mega .market-title {
+        .series-header .series-title {
             font-size: 18px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .series-header .series-meta {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+        }
+
+        .series-header .series-count {
+            color: var(--accent);
+        }
+
+        .series-header .series-volume {
+            color: var(--text-muted);
         }
 
         /* Volume-based sizing */
@@ -119,7 +144,7 @@
         }
 
         .market-card.vol-huge .chart-container {
-            height: 200px;
+            height: 180px;
         }
 
         .market-card.vol-large .chart-container {
@@ -134,13 +159,13 @@
             height: 120px;
         }
 
-        /* Multi-outcome markets get more space */
+        /* Multi-outcome markets */
         .market-card.multi-outcome {
             grid-column: span 2;
         }
 
         .market-card.multi-outcome .chart-container {
-            height: 220px;
+            height: 200px;
         }
 
         .market-card {
@@ -952,114 +977,98 @@
         async function renderMarkets() {
             const grid = document.getElementById('marketsGrid');
 
-            if (marketsData.length === 0 && Object.keys(eventSeries).length === 0) {
+            // Combine all markets: event series submarkets + regular markets
+            let allMarkets = [];
+            
+            // Add event series markets with their series info
+            Object.entries(eventSeries).forEach(([key, series]) => {
+                series.markets.forEach(m => {
+                    allMarkets.push({
+                        ...m,
+                        seriesKey: key,
+                        seriesTitle: series.title,
+                        seriesTotalVolume: series.totalVolume,
+                        seriesCount: series.markets.length,
+                        category: 'geopolitical'
+                    });
+                });
+            });
+            
+            // Add regular markets
+            marketsData.forEach(m => {
+                allMarkets.push({ ...m, seriesKey: null });
+            });
+
+            if (allMarkets.length === 0) {
                 grid.innerHTML = '<div class="error">No relevant markets found.</div>';
                 return;
             }
 
-            let html = '';
+            // Sort all by volume
+            allMarkets.sort((a, b) => (b.volumeNum || 0) - (a.volumeNum || 0));
 
-            // Render mega cards for event series FIRST
-            Object.entries(eventSeries).forEach(([key, series], seriesIdx) => {
-                const latestMarket = series.markets[series.markets.length - 1];
-                const nearestMarket = series.markets[0];
-                // Find highest volume submarket
-                const topVolMarket = series.markets.reduce((a, b) => (a.volumeNum || 0) > (b.volumeNum || 0) ? a : b);
-                
-                html += `
-                    <div class="market-card mega" data-series="${key}">
-                        <div class="market-header">
-                            <span class="market-category category-geopolitical">EVENT SERIES</span>
-                            <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--accent); font-weight: 600;">
-                                ${series.markets.length} submarkets
-                            </span>
-                        </div>
-                        <div class="market-title">${series.title}</div>
-                        <div class="chart-container">
-                            <canvas id="series-chart-${seriesIdx}"></canvas>
-                        </div>
-                        <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-muted); margin-bottom: 12px;">
-                            Dot size = volume traded. Hover for details.
-                        </div>
-                        <div class="market-stats" style="flex-wrap: wrap; gap: 16px;">
-                            <div class="probability-container">
-                                <span class="probability-label">Nearest (${nearestMarket.dateStr})</span>
-                                <span class="probability ${getProbabilityClass(nearestMarket.yesPrice)}">${formatPercent(nearestMarket.yesPrice)}</span>
-                            </div>
-                            <div class="probability-container">
-                                <span class="probability-label">Highest Vol (${topVolMarket.dateStr})</span>
-                                <span class="probability ${getProbabilityClass(topVolMarket.yesPrice)}">${formatPercent(topVolMarket.yesPrice)}</span>
-                                <span style="font-size: 10px; color: var(--text-muted);">${formatVolume(topVolMarket.volumeNum)}</span>
-                            </div>
-                            <div class="probability-container">
-                                <span class="probability-label">Latest (${latestMarket.dateStr})</span>
-                                <span class="probability ${getProbabilityClass(latestMarket.yesPrice)}">${formatPercent(latestMarket.yesPrice)}</span>
-                            </div>
-                            <div class="volume-info">
-                                <div class="volume-label">Total Series Volume</div>
-                                <div class="volume-value">${formatVolume(series.totalVolume)}</div>
-                            </div>
-                        </div>
-                    </div>
-                `;
+            // Calculate max volume for sizing
+            const maxVolume = Math.max(...allMarkets.map(m => m.volumeNum || 0), 1);
+
+            // Group by series (null = standalone)
+            const groups = {};
+            allMarkets.forEach(m => {
+                const key = m.seriesKey || '__standalone__';
+                if (!groups[key]) groups[key] = [];
+                groups[key].push(m);
             });
 
-            // Create cards for regular markets with volume-based sizing
-            const maxVolume = Math.max(...marketsData.map(m => m.volumeNum || 0), 1);
-            
-            html += marketsData.map((market, idx) => {
-                const prices = JSON.parse(market.outcomePrices || '["0.5", "0.5"]');
-                const outcomes = JSON.parse(market.outcomes || '["Yes", "No"]');
-                const yesProb = prices[0];
-                const probClass = getProbabilityClass(yesProb);
-                const vol = market.volumeNum || 0;
-                
-                // Determine size class based on volume
-                let sizeClass = 'vol-small';
-                if (vol >= maxVolume * 0.7) sizeClass = 'vol-huge';
-                else if (vol >= maxVolume * 0.4) sizeClass = 'vol-large';
-                else if (vol >= maxVolume * 0.15) sizeClass = 'vol-medium';
-                
-                // Multi-outcome markets (more than Yes/No)
-                const isMultiOutcome = outcomes.length > 2;
-                if (isMultiOutcome) sizeClass = 'multi-outcome';
+            let html = '';
+            let marketIdx = 0;
 
-                return `
-                    <div class="market-card ${sizeClass}" data-slug="${market.slug}" data-idx="${idx}">
-                        <div class="market-header">
-                            <span class="market-category category-${market.category}">${getCategoryLabel(market.category)}</span>
-                            <select class="timeframe-select" data-idx="${idx}">
-                                <option value="1d">1D</option>
-                                <option value="3d">3D</option>
-                                <option value="1w" selected>1W</option>
-                                <option value="1m">1M</option>
-                            </select>
-                        </div>
-                        <div class="market-title">${market.question}</div>
-                        <div class="chart-container">
-                            <canvas id="chart-${idx}"></canvas>
-                        </div>
-                        <div class="chart-range" id="range-${idx}" style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-muted); margin-bottom: 12px;"></div>
-                        <div class="market-stats">
-                            ${isMultiOutcome ? renderMultiOutcomes(outcomes, prices) : `
-                            <div class="probability-container">
-                                <span class="probability-label">YES probability</span>
-                                <span class="probability ${probClass}" id="prob-${idx}">${formatPercent(yesProb)}</span>
-                            </div>
-                            `}
-                            <div class="volume-info">
-                                <div class="volume-label">Total Volume</div>
-                                <div class="volume-value">${formatVolume(market.volumeNum)}</div>
-                            </div>
+            // Render event series first (grouped with header)
+            Object.entries(eventSeries).forEach(([key, series]) => {
+                const seriesMarkets = groups[key] || [];
+                if (seriesMarkets.length === 0) return;
+
+                // Series header
+                html += `
+                    <div class="series-header">
+                        <div class="series-title">${series.title}</div>
+                        <div class="series-meta">
+                            <span class="series-count">${seriesMarkets.length} markets</span>
+                            <span class="series-volume">Total: ${formatVolume(series.totalVolume)}</span>
                         </div>
                     </div>
                 `;
-            }).join('');
+
+                // Individual cards for each submarket
+                seriesMarkets.forEach(market => {
+                    html += renderMarketCard(market, marketIdx, maxVolume);
+                    marketIdx++;
+                });
+            });
+
+            // Render standalone markets
+            const standaloneMarkets = groups['__standalone__'] || [];
+            if (standaloneMarkets.length > 0) {
+                html += `
+                    <div class="series-header">
+                        <div class="series-title">Other Markets</div>
+                        <div class="series-meta">
+                            <span class="series-count">${standaloneMarkets.length} markets</span>
+                        </div>
+                    </div>
+                `;
+
+                standaloneMarkets.forEach(market => {
+                    html += renderMarketCard(market, marketIdx, maxVolume);
+                    marketIdx++;
+                });
+            }
 
             grid.innerHTML = html;
 
-            // Add click handlers for regular market cards
-            document.querySelectorAll('.market-card:not(.mega)').forEach(card => {
+            // Store all markets for chart loading
+            window.allMarketsForCharts = allMarkets;
+
+            // Add click handlers
+            document.querySelectorAll('.market-card').forEach(card => {
                 card.addEventListener('click', (e) => {
                     if (e.target.classList.contains('timeframe-select')) return;
                     openPanel(card.dataset.slug);
@@ -1071,165 +1080,137 @@
                 select.addEventListener('change', async (e) => {
                     e.stopPropagation();
                     const idx = parseInt(e.target.dataset.idx);
-                    await loadChartForMarket(idx, e.target.value);
+                    await loadChartForMarketByIndex(idx, e.target.value);
                 });
             });
 
-            // Load series charts (term structure)
-            Object.entries(eventSeries).forEach(([key, series], seriesIdx) => {
-                createSeriesChart(`series-chart-${seriesIdx}`, series);
-            });
-
-            // Load regular charts in parallel (non-blocking)
+            // Load all charts in parallel
             Promise.all(
-                marketsData.map((_, i) => loadChartForMarket(i, '1w'))
+                allMarkets.map((_, i) => loadChartForMarketByIndex(i, '1w'))
             );
         }
 
-        // Create term structure chart for event series
-        function createSeriesChart(canvasId, series) {
-            const ctx = document.getElementById(canvasId);
-            if (!ctx) return;
+        function renderMarketCard(market, idx, maxVolume) {
+            const prices = JSON.parse(market.outcomePrices || '["0.5", "0.5"]');
+            const outcomes = JSON.parse(market.outcomes || '["Yes", "No"]');
+            const yesProb = market.yesPrice || parseFloat(prices[0]);
+            const probClass = getProbabilityClass(yesProb);
+            const vol = market.volumeNum || 0;
+            
+            // Volume-based sizing
+            let sizeClass = 'vol-small';
+            if (vol >= maxVolume * 0.5) sizeClass = 'vol-huge';
+            else if (vol >= maxVolume * 0.2) sizeClass = 'vol-large';
+            else if (vol >= maxVolume * 0.05) sizeClass = 'vol-medium';
+            
+            const isMultiOutcome = outcomes.length > 2;
+            if (isMultiOutcome) sizeClass = 'multi-outcome';
 
-            // Shorten date labels (e.g., "Mar 9" instead of "March 9, 2026")
-            const labels = series.markets.map(m => {
-                const d = m.dateStr;
-                // Try to parse and format shorter
-                try {
-                    const date = new Date(d);
-                    if (!isNaN(date)) {
-                        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                    }
-                } catch(e) {}
-                // Fallback: shorten manually
-                return d.replace(/,?\s*2026/, '').replace(/uary/g, '').replace(/ember/g, '').replace(/tember/, '').replace(/ober/, '');
-            });
-            const yesData = series.markets.map(m => m.yesPrice * 100);
-            const noData = series.markets.map(m => m.noPrice * 100);
-            const volumes = series.markets.map(m => m.volumeNum || 0);
-
-            // Scale point sizes by volume (min 3, max 12)
-            const maxVol = Math.max(...volumes, 1);
-            const pointSizes = volumes.map(v => 3 + (v / maxVol) * 9);
-
-            new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels,
-                    datasets: [
-                        {
-                            label: 'YES',
-                            data: yesData,
-                            borderColor: '#5cb85c',
-                            backgroundColor: 'rgba(92, 184, 92, 0.1)',
-                            borderWidth: 2,
-                            fill: true,
-                            tension: 0.3,
-                            pointRadius: pointSizes,
-                            pointHoverRadius: pointSizes.map(s => s + 3),
-                            pointBackgroundColor: '#5cb85c',
-                            pointBorderColor: '#0a0f0a',
-                            pointBorderWidth: 2
-                        },
-                        {
-                            label: 'NO',
-                            data: noData,
-                            borderColor: '#c9302c',
-                            backgroundColor: 'rgba(201, 48, 44, 0.1)',
-                            borderWidth: 2,
-                            fill: true,
-                            tension: 0.3,
-                            pointRadius: pointSizes,
-                            pointHoverRadius: pointSizes.map(s => s + 3),
-                            pointBackgroundColor: '#c9302c',
-                            pointBorderColor: '#0a0f0a',
-                            pointBorderWidth: 2
-                        }
-                    ]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    interaction: {
-                        intersect: false,
-                        mode: 'index'
-                    },
-                    plugins: {
-                        legend: {
-                            display: true,
-                            position: 'top',
-                            align: 'end',
-                            labels: {
-                                boxWidth: 12,
-                                boxHeight: 2,
-                                padding: 8,
-                                font: { family: 'JetBrains Mono', size: 11 },
-                                color: '#8a9a8a'
-                            }
-                        },
-                        tooltip: {
-                            enabled: true,
-                            backgroundColor: '#0a0f0a',
-                            borderColor: '#1a241a',
-                            borderWidth: 1,
-                            titleColor: '#e8f0e8',
-                            bodyColor: '#e8f0e8',
-                            titleFont: { family: 'JetBrains Mono', size: 12, weight: 'bold' },
-                            bodyFont: { family: 'JetBrains Mono', size: 12 },
-                            padding: 12,
-                            displayColors: true,
-                            callbacks: {
-                                title: (items) => {
-                                    const idx = items[0].dataIndex;
-                                    const market = series.markets[idx];
-                                    return `By ${market.dateStr}`;
-                                },
-                                label: (item) => ` ${item.dataset.label}: ${item.parsed.y.toFixed(1)}%`,
-                                afterBody: (items) => {
-                                    const idx = items[0].dataIndex;
-                                    const vol = volumes[idx];
-                                    return `\n Volume: ${formatVolume(vol)}`;
-                                }
-                            }
-                        }
-                    },
-                    scales: {
-                        x: {
-                            display: true,
-                            grid: {
-                                color: 'rgba(26, 36, 26, 0.3)',
-                                drawBorder: false
-                            },
-                            ticks: {
-                                font: { family: 'JetBrains Mono', size: 10 },
-                                color: '#8a9a8a',
-                                maxRotation: 60,
-                                minRotation: 45,
-                                autoSkip: false,
-                                padding: 5
-                            }
-                        },
-                        y: {
-                            display: true,
-                            position: 'right',
-                            min: 0,
-                            max: 100,
-                            grid: {
-                                color: 'rgba(26, 36, 26, 0.5)',
-                                drawBorder: false
-                            },
-                            ticks: {
-                                font: { family: 'JetBrains Mono', size: 10 },
-                                color: '#5a6a5a',
-                                callback: (v) => v + '%'
-                            }
-                        }
-                    }
-                }
-            });
+            return `
+                <div class="market-card ${sizeClass}" data-slug="${market.slug}" data-idx="${idx}">
+                    <div class="market-header">
+                        <span class="market-category category-${market.category || 'geopolitical'}">${getCategoryLabel(market.category || 'geopolitical')}</span>
+                        <select class="timeframe-select" data-idx="${idx}">
+                            <option value="1d">1D</option>
+                            <option value="3d">3D</option>
+                            <option value="1w" selected>1W</option>
+                            <option value="1m">1M</option>
+                        </select>
+                    </div>
+                    <div class="market-title">${market.question}</div>
+                    <div class="chart-container">
+                        <canvas id="chart-${idx}"></canvas>
+                    </div>
+                    <div class="chart-range" id="range-${idx}" style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-muted); margin-bottom: 12px;"></div>
+                    <div class="market-stats">
+                        ${isMultiOutcome ? renderMultiOutcomes(outcomes, prices) : `
+                        <div class="probability-container">
+                            <span class="probability-label">YES probability</span>
+                            <span class="probability ${probClass}" id="prob-${idx}">${formatPercent(yesProb)}</span>
+                        </div>
+                        `}
+                        <div class="volume-info">
+                            <div class="volume-label">Volume</div>
+                            <div class="volume-value">${formatVolume(vol)}</div>
+                        </div>
+                    </div>
+                </div>
+            `;
         }
 
-        // Load chart for a specific market
+        // Load chart by global index
+        async function loadChartForMarketByIndex(idx, timeframe) {
+            const market = window.allMarketsForCharts[idx];
+            if (!market) return;
+
+            // Destroy existing chart
+            if (marketCharts[idx]) {
+                marketCharts[idx].destroy();
+            }
+
+            const prices = JSON.parse(market.outcomePrices || '["0.5", "0.5"]');
+            const currentPrice = market.yesPrice || parseFloat(prices[0]);
+
+            // Get token ID for price history
+            let tokenIds = [];
+            try {
+                tokenIds = JSON.parse(market.clobTokenIds || '[]');
+            } catch (e) {}
+
+            let history = [];
+            if (tokenIds.length > 0) {
+                history = await fetchPriceHistory(tokenIds[0], timeframe);
+            }
+
+            // Calculate price change
+            if (history.length > 1) {
+                const startPrice = history[0].p;
+                const endPrice = history[history.length - 1].p;
+                const change = ((endPrice - startPrice) / startPrice) * 100;
+                const probEl = document.getElementById(`prob-${idx}`);
+                if (probEl) {
+                    const changeSpan = probEl.querySelector('.prob-change');
+                    const changeHtml = `<span class="prob-change ${change >= 0 ? 'up' : 'down'}">${change >= 0 ? '▲' : '▼'} ${Math.abs(change).toFixed(1)}%</span>`;
+                    if (changeSpan) {
+                        changeSpan.outerHTML = changeHtml;
+                    } else {
+                        probEl.innerHTML = formatPercent(currentPrice) + ' ' + changeHtml;
+                    }
+                }
+            }
+
+            // If no history, generate synthetic movement
+            let isSynthetic = false;
+            if (history.length === 0) {
+                isSynthetic = true;
+                const now = Date.now() / 1000;
+                for (let i = 48; i >= 0; i--) {
+                    const baseNoise = (Math.random() - 0.5) * 0.03;
+                    const trend = Math.sin(i / 10) * 0.01;
+                    history.push({
+                        t: now - i * 1800,
+                        p: Math.max(0.01, Math.min(0.99, currentPrice + baseNoise + trend))
+                    });
+                }
+            }
+            
+            // Show price range
+            const rangeEl = document.getElementById(`range-${idx}`);
+            if (rangeEl && history.length > 1) {
+                const pricesArr = history.map(h => h.p * 100);
+                const minP = Math.min(...pricesArr).toFixed(1);
+                const maxP = Math.max(...pricesArr).toFixed(1);
+                const range = (Math.max(...pricesArr) - Math.min(...pricesArr)).toFixed(1);
+                rangeEl.innerHTML = isSynthetic ? 
+                    '<span style="color: var(--warning);">⚠️ No history data</span>' : 
+                    `<span style="color: var(--positive);">YES</span> range: ${minP}% — ${maxP}% (Δ${range}%)`;
+            }
+            
+            // Create chart
+            marketCharts[idx] = createChart(`chart-${idx}`, history, null);
+        }
+
+        // Load chart for a specific market (legacy)
         async function loadChartForMarket(idx, timeframe) {
             const market = marketsData[idx];
             if (!market) return;
