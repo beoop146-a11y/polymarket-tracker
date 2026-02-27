@@ -99,6 +99,19 @@
             gap: 20px;
         }
 
+        .market-card.mega {
+            grid-column: 1 / -1;
+            max-width: 100%;
+        }
+
+        .market-card.mega .chart-container {
+            height: 280px;
+        }
+
+        .market-card.mega .market-title {
+            font-size: 18px;
+        }
+
         .market-card {
             background: var(--bg-secondary);
             border: 1px solid var(--border);
@@ -630,9 +643,11 @@
         // Restricted event slugs to fetch separately (not in regular API)
         const RESTRICTED_EVENTS = [
             'us-strikes-iran-by',
-            'israel-strikes-iran-by',
+            'israel-strikes-iran-by', 
             'iran-strikes-israel-by'
         ];
+
+        let eventSeries = {}; // Store full event series data
 
         // Fetch all markets including restricted ones - FAST parallel loading
         async function fetchMarkets() {
@@ -654,20 +669,41 @@
                     !EXCLUDE_KEYWORDS.test(market.question)
                 );
 
-                // Extract restricted event markets
-                let restrictedMarkets = [];
-                eventResults.forEach(eventData => {
+                // Process event series into mega cards
+                eventSeries = {};
+                eventResults.forEach((eventData, idx) => {
                     if (eventData && eventData[0] && eventData[0].markets) {
-                        const eventMarkets = eventData[0].markets
+                        const event = eventData[0];
+                        const markets = event.markets
                             .filter(m => m.active && !m.closed)
-                            .sort((a, b) => (b.volumeNum || 0) - (a.volumeNum || 0))
-                            .slice(0, 8); // Top 8 per series
-                        restrictedMarkets = restrictedMarkets.concat(eventMarkets);
+                            .map(m => {
+                                // Extract date from question
+                                const dateMatch = m.question.match(/by\s+(.+?)\?/i);
+                                const dateStr = dateMatch ? dateMatch[1] : m.groupItemTitle || 'Unknown';
+                                const prices = JSON.parse(m.outcomePrices || '["0.5","0.5"]');
+                                return {
+                                    ...m,
+                                    dateStr,
+                                    yesPrice: parseFloat(prices[0]),
+                                    noPrice: parseFloat(prices[1])
+                                };
+                            })
+                            .sort((a, b) => new Date(a.dateStr) - new Date(b.dateStr));
+                        
+                        if (markets.length > 0) {
+                            eventSeries[RESTRICTED_EVENTS[idx]] = {
+                                title: event.title,
+                                slug: event.slug,
+                                totalVolume: event.volume || 0,
+                                markets: markets,
+                                category: 'geopolitical'
+                            };
+                        }
                     }
                 });
 
-                // Combine and dedupe
-                marketsData = [...regularMarkets, ...restrictedMarkets];
+                // Combine regular markets
+                marketsData = regularMarkets;
                 const seenSlugs = new Set();
                 marketsData = marketsData.filter(m => {
                     if (seenSlugs.has(m.slug)) return false;
@@ -678,8 +714,8 @@
                 // Sort by volume
                 marketsData.sort((a, b) => (b.volumeNum || 0) - (a.volumeNum || 0));
 
-                // Take top 20
-                marketsData = marketsData.slice(0, 20);
+                // Take top 15 regular markets
+                marketsData = marketsData.slice(0, 15);
 
                 // Add category
                 marketsData = marketsData.map(m => ({
@@ -858,13 +894,50 @@
         async function renderMarkets() {
             const grid = document.getElementById('marketsGrid');
 
-            if (marketsData.length === 0) {
+            if (marketsData.length === 0 && Object.keys(eventSeries).length === 0) {
                 grid.innerHTML = '<div class="error">No relevant markets found.</div>';
                 return;
             }
 
-            // Create cards with loading charts
-            grid.innerHTML = marketsData.map((market, idx) => {
+            let html = '';
+
+            // Render mega cards for event series FIRST
+            Object.entries(eventSeries).forEach(([key, series], seriesIdx) => {
+                const latestMarket = series.markets[series.markets.length - 1];
+                const nearestMarket = series.markets[0];
+                
+                html += `
+                    <div class="market-card mega" data-series="${key}">
+                        <div class="market-header">
+                            <span class="market-category category-geopolitical">EVENT SERIES</span>
+                            <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-muted);">
+                                ${series.markets.length} markets
+                            </span>
+                        </div>
+                        <div class="market-title">${series.title}</div>
+                        <div class="chart-container">
+                            <canvas id="series-chart-${seriesIdx}"></canvas>
+                        </div>
+                        <div class="market-stats">
+                            <div class="probability-container">
+                                <span class="probability-label">Nearest (${nearestMarket.dateStr})</span>
+                                <span class="probability ${getProbabilityClass(nearestMarket.yesPrice)}">${formatPercent(nearestMarket.yesPrice)}</span>
+                            </div>
+                            <div class="probability-container" style="text-align: center;">
+                                <span class="probability-label">Latest (${latestMarket.dateStr})</span>
+                                <span class="probability ${getProbabilityClass(latestMarket.yesPrice)}">${formatPercent(latestMarket.yesPrice)}</span>
+                            </div>
+                            <div class="volume-info">
+                                <div class="volume-label">Series Volume</div>
+                                <div class="volume-value">${formatVolume(series.totalVolume)}</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            // Create cards for regular markets
+            html += marketsData.map((market, idx) => {
                 const prices = JSON.parse(market.outcomePrices || '["0.5", "0.5"]');
                 const yesProb = prices[0];
                 const probClass = getProbabilityClass(yesProb);
@@ -899,8 +972,10 @@
                 `;
             }).join('');
 
-            // Add click handlers
-            document.querySelectorAll('.market-card').forEach(card => {
+            grid.innerHTML = html;
+
+            // Add click handlers for regular market cards
+            document.querySelectorAll('.market-card:not(.mega)').forEach(card => {
                 card.addEventListener('click', (e) => {
                     if (e.target.classList.contains('timeframe-select')) return;
                     openPanel(card.dataset.slug);
@@ -916,10 +991,130 @@
                 });
             });
 
-            // Load charts in parallel (non-blocking)
+            // Load series charts (term structure)
+            Object.entries(eventSeries).forEach(([key, series], seriesIdx) => {
+                createSeriesChart(`series-chart-${seriesIdx}`, series);
+            });
+
+            // Load regular charts in parallel (non-blocking)
             Promise.all(
                 marketsData.map((_, i) => loadChartForMarket(i, '1w'))
             );
+        }
+
+        // Create term structure chart for event series
+        function createSeriesChart(canvasId, series) {
+            const ctx = document.getElementById(canvasId);
+            if (!ctx) return;
+
+            const labels = series.markets.map(m => m.dateStr);
+            const yesData = series.markets.map(m => m.yesPrice * 100);
+            const noData = series.markets.map(m => m.noPrice * 100);
+
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [
+                        {
+                            label: 'YES',
+                            data: yesData,
+                            borderColor: '#5cb85c',
+                            backgroundColor: 'rgba(92, 184, 92, 0.1)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.3,
+                            pointRadius: 4,
+                            pointHoverRadius: 7,
+                            pointBackgroundColor: '#5cb85c',
+                            pointBorderColor: '#fff',
+                            pointBorderWidth: 2
+                        },
+                        {
+                            label: 'NO',
+                            data: noData,
+                            borderColor: '#c9302c',
+                            backgroundColor: 'rgba(201, 48, 44, 0.1)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.3,
+                            pointRadius: 4,
+                            pointHoverRadius: 7,
+                            pointBackgroundColor: '#c9302c',
+                            pointBorderColor: '#fff',
+                            pointBorderWidth: 2
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            align: 'end',
+                            labels: {
+                                boxWidth: 12,
+                                boxHeight: 2,
+                                padding: 8,
+                                font: { family: 'JetBrains Mono', size: 11 },
+                                color: '#8a9a8a'
+                            }
+                        },
+                        tooltip: {
+                            enabled: true,
+                            backgroundColor: '#0a0f0a',
+                            borderColor: '#1a241a',
+                            borderWidth: 1,
+                            titleColor: '#e8f0e8',
+                            bodyColor: '#e8f0e8',
+                            titleFont: { family: 'JetBrains Mono', size: 12, weight: 'bold' },
+                            bodyFont: { family: 'JetBrains Mono', size: 12 },
+                            padding: 12,
+                            displayColors: true,
+                            callbacks: {
+                                title: (items) => `By ${items[0].label}`,
+                                label: (item) => ` ${item.dataset.label}: ${item.parsed.y.toFixed(1)}%`
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            display: true,
+                            grid: {
+                                color: 'rgba(26, 36, 26, 0.5)',
+                                drawBorder: false
+                            },
+                            ticks: {
+                                font: { family: 'JetBrains Mono', size: 9 },
+                                color: '#5a6a5a',
+                                maxRotation: 45,
+                                minRotation: 45
+                            }
+                        },
+                        y: {
+                            display: true,
+                            position: 'right',
+                            min: 0,
+                            max: 100,
+                            grid: {
+                                color: 'rgba(26, 36, 26, 0.5)',
+                                drawBorder: false
+                            },
+                            ticks: {
+                                font: { family: 'JetBrains Mono', size: 10 },
+                                color: '#5a6a5a',
+                                callback: (v) => v + '%'
+                            }
+                        }
+                    }
+                }
+            });
         }
 
         // Load chart for a specific market
