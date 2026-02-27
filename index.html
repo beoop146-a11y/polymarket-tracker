@@ -471,22 +471,34 @@
     </div>
 
     <script>
-        // Curated list of stock-market relevant market slugs
-        const TRACKED_MARKETS = [
+        // Markets loaded from external JSON (auto-updated every 12hrs)
+        let TRACKED_MARKETS = [];
+        let marketsData = [];
+        
+        // Fallback markets in case JSON fails to load
+        const FALLBACK_MARKETS = [
             { slug: 'russia-x-ukraine-ceasefire-by-march-31-2026', category: 'geopolitical' },
             { slug: 'russia-x-ukraine-ceasefire-before-2027', category: 'geopolitical' },
             { slug: 'will-china-invade-taiwan-before-2027', category: 'geopolitical' },
             { slug: 'putin-out-before-2027', category: 'political' },
             { slug: 'zelenskyy-out-as-ukraine-president-before-2027', category: 'political' },
             { slug: 'will-tariffs-generate-250b-in-2025', category: 'trade' },
-            { slug: 'will-the-us-collect-less-than-100b-in-revenue-in-2025', category: 'trade' },
-            { slug: 'will-the-us-collect-between-100b-and-200b-in-revenue-in-2025', category: 'trade' },
-            { slug: 'will-the-us-collect-between-200b-and-500b-in-revenue-in-2025', category: 'trade' },
-            { slug: 'russia-ukraine-ceasefire-before-gta-vi-554', category: 'geopolitical' },
-            { slug: 'will-china-invades-taiwan-before-gta-vi-716', category: 'geopolitical' },
         ];
-
-        let marketsData = [];
+        
+        // Load markets config
+        async function loadMarketsConfig() {
+            try {
+                const response = await fetch('markets.json?t=' + Date.now());
+                if (response.ok) {
+                    TRACKED_MARKETS = await response.json();
+                } else {
+                    TRACKED_MARKETS = FALLBACK_MARKETS;
+                }
+            } catch (e) {
+                console.warn('Failed to load markets.json, using fallback');
+                TRACKED_MARKETS = FALLBACK_MARKETS;
+            }
+        }
         let selectedMarket = null;
 
         // Format numbers
@@ -743,7 +755,11 @@
         });
 
         // Initialize
-        fetchMarkets();
+        async function init() {
+            await loadMarketsConfig();
+            await fetchMarkets();
+        }
+        init();
 
         // Auto-refresh every 60 seconds
         setInterval(fetchMarkets, 60000);
