@@ -627,11 +627,11 @@
                     `${API_BASE}/markets?limit=300&active=true&closed=false`
                 );
 
-                // Filter for stock-market relevant markets
+                // Filter for stock-market relevant markets (min $2M volume)
                 let regularMarkets = data.filter(market => 
                     market.active && 
                     !market.closed &&
-                    (market.volumeNum || 0) > 10000 &&
+                    (market.volumeNum || 0) >= 2000000 &&
                     RELEVANT_KEYWORDS.test(market.question) &&
                     !EXCLUDE_KEYWORDS.test(market.question)
                 );
@@ -645,8 +645,7 @@
                         );
                         if (eventData && eventData[0] && eventData[0].markets) {
                             const eventMarkets = eventData[0].markets
-                                .filter(m => m.active && !m.closed && (m.volumeNum || 0) > 5000)
-                                .slice(0, 5); // Top 5 from each series by date proximity
+                                .filter(m => m.active && !m.closed && (m.volumeNum || 0) >= 2000000);
                             restrictedMarkets = restrictedMarkets.concat(eventMarkets);
                         }
                     } catch (e) {
