@@ -612,15 +612,23 @@
             return [];
         }
 
-        // Fetch all markets
+        // Restricted event slugs to fetch separately (not in regular API)
+        const RESTRICTED_EVENTS = [
+            'us-strikes-iran-by',
+            'israel-strikes-iran-by',
+            'iran-strikes-israel-by'
+        ];
+
+        // Fetch all markets including restricted ones
         async function fetchMarkets() {
             try {
+                // Fetch regular markets
                 const data = await fetchWithProxy(
-                    `${API_BASE}/markets?limit=200&active=true&closed=false`
+                    `${API_BASE}/markets?limit=300&active=true&closed=false`
                 );
 
                 // Filter for stock-market relevant markets
-                marketsData = data.filter(market => 
+                let regularMarkets = data.filter(market => 
                     market.active && 
                     !market.closed &&
                     (market.volumeNum || 0) > 10000 &&
@@ -628,11 +636,38 @@
                     !EXCLUDE_KEYWORDS.test(market.question)
                 );
 
+                // Fetch restricted event markets
+                let restrictedMarkets = [];
+                for (const eventSlug of RESTRICTED_EVENTS) {
+                    try {
+                        const eventData = await fetchWithProxy(
+                            `${API_BASE}/events?slug=${eventSlug}&active=true`
+                        );
+                        if (eventData && eventData[0] && eventData[0].markets) {
+                            const eventMarkets = eventData[0].markets
+                                .filter(m => m.active && !m.closed && (m.volumeNum || 0) > 5000)
+                                .slice(0, 5); // Top 5 from each series by date proximity
+                            restrictedMarkets = restrictedMarkets.concat(eventMarkets);
+                        }
+                    } catch (e) {
+                        console.warn(`Failed to fetch event ${eventSlug}:`, e);
+                    }
+                }
+
+                // Combine and dedupe
+                marketsData = [...regularMarkets, ...restrictedMarkets];
+                const seenSlugs = new Set();
+                marketsData = marketsData.filter(m => {
+                    if (seenSlugs.has(m.slug)) return false;
+                    seenSlugs.add(m.slug);
+                    return true;
+                });
+
                 // Sort by volume
                 marketsData.sort((a, b) => (b.volumeNum || 0) - (a.volumeNum || 0));
 
-                // Take top 12
-                marketsData = marketsData.slice(0, 12);
+                // Take top 15
+                marketsData = marketsData.slice(0, 15);
 
                 // Add category
                 marketsData = marketsData.map(m => ({
