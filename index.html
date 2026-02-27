@@ -616,7 +616,13 @@
         const RESTRICTED_EVENTS = [
             'us-strikes-iran-by',
             'israel-strikes-iran-by',
-            'iran-strikes-israel-by'
+            'iran-strikes-israel-by',
+            'us-iran-war',
+            'iran-nuclear',
+            'israel-iran-war',
+            'china-invades-taiwan',
+            'russia-nato-war',
+            'north-korea-attack'
         ];
 
         // Fetch all markets including restricted ones
@@ -644,8 +650,10 @@
                             `${API_BASE}/events?slug=${eventSlug}&active=true`
                         );
                         if (eventData && eventData[0] && eventData[0].markets) {
+                            // Show ALL restricted event markets (no volume filter)
                             const eventMarkets = eventData[0].markets
-                                .filter(m => m.active && !m.closed && (m.volumeNum || 0) >= 2000000);
+                                .filter(m => m.active && !m.closed)
+                                .sort((a, b) => (b.volumeNum || 0) - (a.volumeNum || 0));
                             restrictedMarkets = restrictedMarkets.concat(eventMarkets);
                         }
                     } catch (e) {
@@ -665,8 +673,8 @@
                 // Sort by volume
                 marketsData.sort((a, b) => (b.volumeNum || 0) - (a.volumeNum || 0));
 
-                // Take top 15
-                marketsData = marketsData.slice(0, 15);
+                // Take top 20
+                marketsData = marketsData.slice(0, 20);
 
                 // Add category
                 marketsData = marketsData.map(m => ({
