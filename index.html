@@ -746,9 +746,12 @@
 
                 // Process event series into mega cards - GET ALL SUBMARKETS
                 eventSeries = {};
+                console.log('eventResults:', eventResults);
                 eventResults.forEach((eventData, idx) => {
+                    console.log(`Event ${idx} (${RESTRICTED_EVENTS[idx]}):`, eventData);
                     if (eventData && eventData[0] && eventData[0].markets) {
                         const event = eventData[0];
+                        console.log(`Event ${event.title} has ${event.markets.length} total markets`);
                         const markets = event.markets
                             .filter(m => m.active && !m.closed)
                             .map(m => {
@@ -773,6 +776,7 @@
                                 return a.dateStr.localeCompare(b.dateStr);
                             });
                         
+                        console.log(`After filter (active && !closed): ${markets.length} markets`);
                         if (markets.length > 0) {
                             eventSeries[RESTRICTED_EVENTS[idx]] = {
                                 title: event.title,
@@ -976,6 +980,9 @@
         // Render markets
         async function renderMarkets() {
             const grid = document.getElementById('marketsGrid');
+            
+            console.log('eventSeries:', eventSeries);
+            console.log('marketsData:', marketsData);
 
             // Combine all markets: event series submarkets + regular markets
             let allMarkets = [];
