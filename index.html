@@ -530,8 +530,8 @@
         const CLOB_API = 'https://clob.polymarket.com';
 
         // Stock-market relevant keywords
-        const RELEVANT_KEYWORDS = /tariff|ceasefire|invasion|invade|attack|strike|nuclear|sanction|embargo|recession|inflation|fed rate|rate cut|treasury|deficit|debt|powell|nato|military|troops|war[^r]|bombing|missile|putin|zelenskyy|xi jinping|china.*taiwan|russia.*ukraine/i;
-        const EXCLUDE_KEYWORDS = /nba|nfl|nhl|mlb|fifa|ufc|world cup|stanley cup|mvp|rookie|championship|playoffs|finals|super bowl|olympics|gta|album|movie|grammy|oscar|emmy/i;
+        const RELEVANT_KEYWORDS = /tariff|ceasefire|invasion|invade|attack|strike|nuclear|sanction|embargo|recession|inflation|fed rate|rate cut|treasury|deficit|debt|powell|nato|military|troops|war[^r]|bombing|missile|putin|zelenskyy|xi jinping|china.*taiwan|russia.*ukraine|iran|israel|houthi|hezbollah|oil price|crude|opec|gaza|hamas|north korea|kim jong/i;
+        const EXCLUDE_KEYWORDS = /nba|nfl|nhl|mlb|fifa|ufc|world cup|stanley cup|mvp|rookie|championship|playoffs|finals|super bowl|olympics|gta|album|movie|grammy|oscar|emmy|win the 2026|qualify for/i;
 
         let marketsData = [];
         let marketCharts = {};
@@ -558,9 +558,9 @@
         function getCategory(question) {
             if (/russia|ukraine|ceasefire|putin|zelenskyy/i.test(question)) return 'geopolitical';
             if (/china|taiwan|invade|invasion|xi/i.test(question)) return 'geopolitical';
-            if (/iran|israel|attack|strike|military|missile|nato|bombing|nuclear/i.test(question)) return 'geopolitical';
+            if (/iran|israel|attack|strike|military|missile|nato|bombing|nuclear|houthi|hezbollah|gaza|hamas|north korea|kim jong/i.test(question)) return 'geopolitical';
             if (/tariff|trade|sanction|embargo/i.test(question)) return 'trade';
-            if (/fed|rate|inflation|recession|gdp|unemployment|economy|treasury|deficit|debt|powell/i.test(question)) return 'economic';
+            if (/fed|rate|inflation|recession|gdp|unemployment|economy|treasury|deficit|debt|powell|oil|crude|opec/i.test(question)) return 'economic';
             return 'political';
         }
 
@@ -608,7 +608,7 @@
                 marketsData = data.filter(market => 
                     market.active && 
                     !market.closed &&
-                    (market.volumeNum || 0) > 50000 &&
+                    (market.volumeNum || 0) > 10000 &&
                     RELEVANT_KEYWORDS.test(market.question) &&
                     !EXCLUDE_KEYWORDS.test(market.question)
                 );
@@ -703,8 +703,8 @@
                         },
                         y: {
                             display: false,
-                            min: 0,
-                            max: 100
+                            // Auto-scale with 10% padding
+                            grace: '10%'
                         }
                     }
                 }
