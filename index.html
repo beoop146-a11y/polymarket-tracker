@@ -586,15 +586,30 @@
             const intervals = { '1d': '1d', '3d': '3d', '1w': '1w', '1m': '1m' };
             const interval = intervals[timeframe] || '1w';
             
-            try {
-                const data = await fetchWithProxy(
-                    `${CLOB_API}/prices-history?market=${tokenId}&interval=${interval}&fidelity=60`
-                );
-                return data.history || [];
-            } catch (e) {
-                console.warn('Failed to fetch price history:', e);
-                return [];
+            // Try multiple CORS proxies
+            const proxies = [
+                'https://corsproxy.io/?',
+                'https://api.allorigins.win/raw?url=',
+                ''  // Direct (might work)
+            ];
+            
+            for (const proxy of proxies) {
+                try {
+                    const url = `${CLOB_API}/prices-history?market=${tokenId}&interval=${interval}&fidelity=60`;
+                    const response = await fetch(proxy + encodeURIComponent(url));
+                    if (!response.ok) continue;
+                    const data = await response.json();
+                    if (data.history && data.history.length > 0) {
+                        console.log(`Price history loaded: ${data.history.length} points via ${proxy || 'direct'}`);
+                        return data.history;
+                    }
+                } catch (e) {
+                    console.warn(`Proxy ${proxy || 'direct'} failed:`, e.message);
+                }
             }
+            
+            console.warn('All proxies failed for price history');
+            return [];
         }
 
         // Fetch all markets
@@ -743,6 +758,7 @@
                         <div class="chart-container">
                             <canvas id="chart-${idx}"></canvas>
                         </div>
+                        <div class="chart-range" id="range-${idx}" style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-muted); margin-bottom: 12px;"></div>
                         <div class="market-stats">
                             <div class="probability-container">
                                 <span class="probability-label">YES probability</span>
@@ -821,6 +837,33 @@
                 }
             }
 
+            // If no history, generate synthetic movement for visual
+            let isSynthetic = false;
+            if (history.length === 0) {
+                isSynthetic = true;
+                const now = Date.now() / 1000;
+                history = [];
+                for (let i = 24; i >= 0; i--) {
+                    const noise = (Math.random() - 0.5) * 0.02; // ±1% noise
+                    history.push({
+                        t: now - i * 3600,
+                        p: Math.max(0.01, Math.min(0.99, currentPrice + noise))
+                    });
+                }
+            }
+            
+            // Show price range
+            const rangeEl = document.getElementById(`range-${idx}`);
+            if (rangeEl && history.length > 1) {
+                const prices = history.map(h => h.p * 100);
+                const minP = Math.min(...prices).toFixed(1);
+                const maxP = Math.max(...prices).toFixed(1);
+                const range = (Math.max(...prices) - Math.min(...prices)).toFixed(1);
+                rangeEl.textContent = isSynthetic ? 
+                    '⚠️ No history data' : 
+                    `Range: ${minP}% — ${maxP}% (Δ${range}%)`;
+            }
+            
             // Create chart
             marketCharts[idx] = createChart(`chart-${idx}`, history, currentPrice);
         }
