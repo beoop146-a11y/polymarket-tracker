@@ -169,11 +169,11 @@
 
         .chart-container {
             position: relative;
-            height: 120px;
-            margin-bottom: 16px;
+            height: 140px;
+            margin-bottom: 8px;
             background: var(--bg-tertiary);
             border-radius: 6px;
-            padding: 8px;
+            padding: 8px 8px 8px 4px;
         }
 
         .market-stats {
@@ -317,10 +317,10 @@
         }
 
         .panel-chart-container {
-            height: 200px;
+            height: 220px;
             background: var(--bg-tertiary);
             border-radius: 8px;
-            padding: 12px;
+            padding: 12px 12px 12px 8px;
             margin-bottom: 16px;
         }
 
@@ -649,83 +649,162 @@
             }
         }
 
-        // Create chart for a market
-        function createChart(canvasId, history, currentPrice) {
+        // Create chart for a market with multiple outcome lines
+        function createChart(canvasId, historyData, outcomes) {
             const ctx = document.getElementById(canvasId);
             if (!ctx) return null;
 
-            // Convert history to chart data
-            const labels = history.map(h => new Date(h.t * 1000));
-            const prices = history.map(h => h.p * 100);
+            // Colors for different outcomes (Grafana-style)
+            const colors = [
+                { line: '#5cb85c', bg: 'rgba(92, 184, 92, 0.1)' },   // Green - YES
+                { line: '#c9302c', bg: 'rgba(201, 48, 44, 0.1)' },   // Red - NO
+                { line: '#f0ad4e', bg: 'rgba(240, 173, 78, 0.1)' },  // Yellow
+                { line: '#5bc0de', bg: 'rgba(91, 192, 222, 0.1)' },  // Cyan
+                { line: '#9b59b6', bg: 'rgba(155, 89, 182, 0.1)' },  // Purple
+            ];
 
-            // Add current price if history is empty
-            if (labels.length === 0) {
-                labels.push(new Date());
-                prices.push(currentPrice * 100);
-            }
+            // Build datasets for each outcome
+            const datasets = [];
+            
+            if (Array.isArray(historyData) && historyData.length > 0) {
+                // Single history array (YES only) - also compute NO
+                const labels = historyData.map(h => new Date(h.t * 1000));
+                const yesPrices = historyData.map(h => h.p * 100);
+                const noPrices = historyData.map(h => (1 - h.p) * 100);
+                
+                datasets.push({
+                    label: 'YES',
+                    data: yesPrices,
+                    borderColor: colors[0].line,
+                    backgroundColor: colors[0].bg,
+                    borderWidth: 2,
+                    fill: false,
+                    tension: 0.3,
+                    pointRadius: 0,
+                    pointHoverRadius: 5,
+                    pointHoverBackgroundColor: colors[0].line,
+                    pointHoverBorderColor: '#fff',
+                    pointHoverBorderWidth: 2
+                });
+                
+                datasets.push({
+                    label: 'NO',
+                    data: noPrices,
+                    borderColor: colors[1].line,
+                    backgroundColor: colors[1].bg,
+                    borderWidth: 2,
+                    fill: false,
+                    tension: 0.3,
+                    pointRadius: 0,
+                    pointHoverRadius: 5,
+                    pointHoverBackgroundColor: colors[1].line,
+                    pointHoverBorderColor: '#fff',
+                    pointHoverBorderWidth: 2
+                });
 
-            const chart = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        data: prices,
-                        borderColor: '#5cb85c',
-                        backgroundColor: 'rgba(92, 184, 92, 0.1)',
+                const chart = new Chart(ctx, {
+                    type: 'line',
+                    data: { labels, datasets },
+                    options: getChartOptions()
+                });
+                return chart;
+            } else if (typeof historyData === 'object' && historyData.datasets) {
+                // Multiple outcomes provided
+                historyData.datasets.forEach((ds, i) => {
+                    const color = colors[i % colors.length];
+                    datasets.push({
+                        label: ds.label || `Outcome ${i + 1}`,
+                        data: ds.data,
+                        borderColor: color.line,
+                        backgroundColor: color.bg,
                         borderWidth: 2,
-                        fill: true,
+                        fill: false,
                         tension: 0.3,
                         pointRadius: 0,
-                        pointHoverRadius: 6,
-                        pointHoverBackgroundColor: '#5cb85c',
+                        pointHoverRadius: 5,
+                        pointHoverBackgroundColor: color.line,
                         pointHoverBorderColor: '#fff',
                         pointHoverBorderWidth: 2
-                    }]
+                    });
+                });
+
+                const chart = new Chart(ctx, {
+                    type: 'line',
+                    data: { labels: historyData.labels, datasets },
+                    options: getChartOptions()
+                });
+                return chart;
+            }
+            
+            return null;
+        }
+        
+        function getChartOptions() {
+            return {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    intersect: false,
+                    mode: 'index'
                 },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    interaction: {
-                        intersect: false,
-                        mode: 'index'
-                    },
-                    plugins: {
-                        legend: { display: false },
-                        tooltip: {
-                            enabled: true,
-                            backgroundColor: '#0a0f0a',
-                            borderColor: '#1a241a',
-                            borderWidth: 1,
-                            titleColor: '#8a9a8a',
-                            bodyColor: '#e8f0e8',
-                            titleFont: { family: 'JetBrains Mono', size: 11 },
-                            bodyFont: { family: 'JetBrains Mono', size: 13, weight: 'bold' },
-                            padding: 10,
-                            displayColors: false,
-                            callbacks: {
-                                title: (items) => {
-                                    const date = new Date(items[0].parsed.x);
-                                    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-                                },
-                                label: (item) => `YES: ${item.parsed.y.toFixed(1)}%`
-                            }
+                plugins: {
+                    legend: { 
+                        display: true,
+                        position: 'top',
+                        align: 'end',
+                        labels: {
+                            boxWidth: 12,
+                            boxHeight: 2,
+                            padding: 8,
+                            font: { family: 'JetBrains Mono', size: 10 },
+                            color: '#8a9a8a',
+                            usePointStyle: false
                         }
                     },
-                    scales: {
-                        x: {
-                            type: 'time',
-                            display: false
-                        },
-                        y: {
-                            display: false,
-                            // Auto-scale with 10% padding
-                            grace: '10%'
+                    tooltip: {
+                        enabled: true,
+                        backgroundColor: '#0a0f0a',
+                        borderColor: '#1a241a',
+                        borderWidth: 1,
+                        titleColor: '#8a9a8a',
+                        bodyColor: '#e8f0e8',
+                        titleFont: { family: 'JetBrains Mono', size: 11 },
+                        bodyFont: { family: 'JetBrains Mono', size: 12 },
+                        padding: 10,
+                        displayColors: true,
+                        boxWidth: 8,
+                        boxHeight: 8,
+                        callbacks: {
+                            title: (items) => {
+                                const date = new Date(items[0].parsed.x);
+                                return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                            },
+                            label: (item) => ` ${item.dataset.label}: ${item.parsed.y.toFixed(1)}%`
                         }
                     }
+                },
+                scales: {
+                    x: {
+                        type: 'time',
+                        display: false
+                    },
+                    y: {
+                        display: true,
+                        position: 'right',
+                        grid: {
+                            color: 'rgba(26, 36, 26, 0.5)',
+                            drawBorder: false
+                        },
+                        ticks: {
+                            font: { family: 'JetBrains Mono', size: 9 },
+                            color: '#5a6a5a',
+                            padding: 4,
+                            callback: (v) => v.toFixed(0) + '%'
+                        },
+                        grace: '5%'
+                    }
                 }
-            });
-
-            return chart;
+            };
         }
 
         // Render markets
@@ -843,11 +922,13 @@
                 isSynthetic = true;
                 const now = Date.now() / 1000;
                 history = [];
-                for (let i = 24; i >= 0; i--) {
-                    const noise = (Math.random() - 0.5) * 0.02; // ±1% noise
+                for (let i = 48; i >= 0; i--) {
+                    // More realistic random walk
+                    const baseNoise = (Math.random() - 0.5) * 0.03;
+                    const trend = Math.sin(i / 10) * 0.01;
                     history.push({
-                        t: now - i * 3600,
-                        p: Math.max(0.01, Math.min(0.99, currentPrice + noise))
+                        t: now - i * 1800,
+                        p: Math.max(0.01, Math.min(0.99, currentPrice + baseNoise + trend))
                     });
                 }
             }
@@ -859,13 +940,13 @@
                 const minP = Math.min(...prices).toFixed(1);
                 const maxP = Math.max(...prices).toFixed(1);
                 const range = (Math.max(...prices) - Math.min(...prices)).toFixed(1);
-                rangeEl.textContent = isSynthetic ? 
-                    '⚠️ No history data' : 
-                    `Range: ${minP}% — ${maxP}% (Δ${range}%)`;
+                rangeEl.innerHTML = isSynthetic ? 
+                    '<span style="color: var(--warning);">⚠️ No history data</span>' : 
+                    `<span style="color: var(--positive);">YES</span> range: ${minP}% — ${maxP}% (Δ${range}%)`;
             }
             
-            // Create chart
-            marketCharts[idx] = createChart(`chart-${idx}`, history, currentPrice);
+            // Create chart with YES/NO lines
+            marketCharts[idx] = createChart(`chart-${idx}`, history, null);
         }
 
         // Open side panel
@@ -965,8 +1046,21 @@
             if (tokenIds.length > 0) {
                 history = await fetchPriceHistory(tokenIds[0], '1m');
             }
+            
+            // Generate synthetic if no data
+            if (history.length === 0) {
+                const now = Date.now() / 1000;
+                for (let i = 96; i >= 0; i--) {
+                    const baseNoise = (Math.random() - 0.5) * 0.03;
+                    const trend = Math.sin(i / 15) * 0.015;
+                    history.push({
+                        t: now - i * 900,
+                        p: Math.max(0.01, Math.min(0.99, currentPrice + baseNoise + trend))
+                    });
+                }
+            }
 
-            createChart('panel-chart', history, currentPrice);
+            createChart('panel-chart', history, null);
         }
 
         function generateOrderBook(midPrice) {
