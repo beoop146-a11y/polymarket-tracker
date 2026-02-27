@@ -99,17 +99,48 @@
             gap: 20px;
         }
 
+        /* Mega card for event series - full width */
         .market-card.mega {
             grid-column: 1 / -1;
             max-width: 100%;
         }
 
         .market-card.mega .chart-container {
-            height: 350px;
+            height: 400px;
         }
 
         .market-card.mega .market-title {
             font-size: 18px;
+        }
+
+        /* Volume-based sizing */
+        .market-card.vol-huge {
+            grid-column: span 2;
+        }
+
+        .market-card.vol-huge .chart-container {
+            height: 200px;
+        }
+
+        .market-card.vol-large .chart-container {
+            height: 160px;
+        }
+
+        .market-card.vol-medium .chart-container {
+            height: 140px;
+        }
+
+        .market-card.vol-small .chart-container {
+            height: 120px;
+        }
+
+        /* Multi-outcome markets get more space */
+        .market-card.multi-outcome {
+            grid-column: span 2;
+        }
+
+        .market-card.multi-outcome .chart-container {
+            height: 220px;
         }
 
         .market-card {
@@ -587,6 +618,25 @@
             return labels[category] || category;
         }
 
+        // Render all outcomes for multi-outcome markets
+        function renderMultiOutcomes(outcomes, prices) {
+            const colors = ['#5cb85c', '#c9302c', '#f0ad4e', '#5bc0de', '#9b59b6', '#e74c3c', '#3498db'];
+            return `
+                <div style="display: flex; flex-wrap: wrap; gap: 12px; flex: 1;">
+                    ${outcomes.map((outcome, i) => {
+                        const prob = parseFloat(prices[i] || 0);
+                        const color = colors[i % colors.length];
+                        return `
+                            <div style="min-width: 80px;">
+                                <div style="font-size: 10px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace;">${outcome}</div>
+                                <div style="font-size: 18px; font-weight: 600; color: ${color}; font-family: 'JetBrains Mono', monospace;">${formatPercent(prob)}</div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+        }
+
         // Fetch with CORS proxy (with fallbacks)
         async function fetchWithProxy(url) {
             const proxies = [
@@ -669,7 +719,7 @@
                     !EXCLUDE_KEYWORDS.test(market.question)
                 );
 
-                // Process event series into mega cards
+                // Process event series into mega cards - GET ALL SUBMARKETS
                 eventSeries = {};
                 eventResults.forEach((eventData, idx) => {
                     if (eventData && eventData[0] && eventData[0].markets) {
@@ -681,21 +731,29 @@
                                 const dateMatch = m.question.match(/by\s+(.+?)\?/i);
                                 const dateStr = dateMatch ? dateMatch[1] : m.groupItemTitle || 'Unknown';
                                 const prices = JSON.parse(m.outcomePrices || '["0.5","0.5"]');
+                                const outcomes = JSON.parse(m.outcomes || '["Yes","No"]');
                                 return {
                                     ...m,
                                     dateStr,
                                     yesPrice: parseFloat(prices[0]),
-                                    noPrice: parseFloat(prices[1])
+                                    noPrice: parseFloat(prices[1]),
+                                    outcomeCount: outcomes.length
                                 };
                             })
-                            .sort((a, b) => new Date(a.dateStr) - new Date(b.dateStr));
+                            // Sort by date
+                            .sort((a, b) => {
+                                const dateA = new Date(a.dateStr);
+                                const dateB = new Date(b.dateStr);
+                                if (!isNaN(dateA) && !isNaN(dateB)) return dateA - dateB;
+                                return a.dateStr.localeCompare(b.dateStr);
+                            });
                         
                         if (markets.length > 0) {
                             eventSeries[RESTRICTED_EVENTS[idx]] = {
                                 title: event.title,
                                 slug: event.slug,
                                 totalVolume: event.volume || 0,
-                                markets: markets,
+                                markets: markets,  // ALL markets, not sliced
                                 category: 'geopolitical'
                             };
                         }
@@ -905,30 +963,40 @@
             Object.entries(eventSeries).forEach(([key, series], seriesIdx) => {
                 const latestMarket = series.markets[series.markets.length - 1];
                 const nearestMarket = series.markets[0];
+                // Find highest volume submarket
+                const topVolMarket = series.markets.reduce((a, b) => (a.volumeNum || 0) > (b.volumeNum || 0) ? a : b);
                 
                 html += `
                     <div class="market-card mega" data-series="${key}">
                         <div class="market-header">
                             <span class="market-category category-geopolitical">EVENT SERIES</span>
-                            <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-muted);">
-                                ${series.markets.length} markets
+                            <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--accent); font-weight: 600;">
+                                ${series.markets.length} submarkets
                             </span>
                         </div>
                         <div class="market-title">${series.title}</div>
                         <div class="chart-container">
                             <canvas id="series-chart-${seriesIdx}"></canvas>
                         </div>
-                        <div class="market-stats">
+                        <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-muted); margin-bottom: 12px;">
+                            Dot size = volume traded. Hover for details.
+                        </div>
+                        <div class="market-stats" style="flex-wrap: wrap; gap: 16px;">
                             <div class="probability-container">
                                 <span class="probability-label">Nearest (${nearestMarket.dateStr})</span>
                                 <span class="probability ${getProbabilityClass(nearestMarket.yesPrice)}">${formatPercent(nearestMarket.yesPrice)}</span>
                             </div>
-                            <div class="probability-container" style="text-align: center;">
+                            <div class="probability-container">
+                                <span class="probability-label">Highest Vol (${topVolMarket.dateStr})</span>
+                                <span class="probability ${getProbabilityClass(topVolMarket.yesPrice)}">${formatPercent(topVolMarket.yesPrice)}</span>
+                                <span style="font-size: 10px; color: var(--text-muted);">${formatVolume(topVolMarket.volumeNum)}</span>
+                            </div>
+                            <div class="probability-container">
                                 <span class="probability-label">Latest (${latestMarket.dateStr})</span>
                                 <span class="probability ${getProbabilityClass(latestMarket.yesPrice)}">${formatPercent(latestMarket.yesPrice)}</span>
                             </div>
                             <div class="volume-info">
-                                <div class="volume-label">Series Volume</div>
+                                <div class="volume-label">Total Series Volume</div>
                                 <div class="volume-value">${formatVolume(series.totalVolume)}</div>
                             </div>
                         </div>
@@ -936,14 +1004,28 @@
                 `;
             });
 
-            // Create cards for regular markets
+            // Create cards for regular markets with volume-based sizing
+            const maxVolume = Math.max(...marketsData.map(m => m.volumeNum || 0), 1);
+            
             html += marketsData.map((market, idx) => {
                 const prices = JSON.parse(market.outcomePrices || '["0.5", "0.5"]');
+                const outcomes = JSON.parse(market.outcomes || '["Yes", "No"]');
                 const yesProb = prices[0];
                 const probClass = getProbabilityClass(yesProb);
+                const vol = market.volumeNum || 0;
+                
+                // Determine size class based on volume
+                let sizeClass = 'vol-small';
+                if (vol >= maxVolume * 0.7) sizeClass = 'vol-huge';
+                else if (vol >= maxVolume * 0.4) sizeClass = 'vol-large';
+                else if (vol >= maxVolume * 0.15) sizeClass = 'vol-medium';
+                
+                // Multi-outcome markets (more than Yes/No)
+                const isMultiOutcome = outcomes.length > 2;
+                if (isMultiOutcome) sizeClass = 'multi-outcome';
 
                 return `
-                    <div class="market-card" data-slug="${market.slug}" data-idx="${idx}">
+                    <div class="market-card ${sizeClass}" data-slug="${market.slug}" data-idx="${idx}">
                         <div class="market-header">
                             <span class="market-category category-${market.category}">${getCategoryLabel(market.category)}</span>
                             <select class="timeframe-select" data-idx="${idx}">
@@ -959,10 +1041,12 @@
                         </div>
                         <div class="chart-range" id="range-${idx}" style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-muted); margin-bottom: 12px;"></div>
                         <div class="market-stats">
+                            ${isMultiOutcome ? renderMultiOutcomes(outcomes, prices) : `
                             <div class="probability-container">
                                 <span class="probability-label">YES probability</span>
                                 <span class="probability ${probClass}" id="prob-${idx}">${formatPercent(yesProb)}</span>
                             </div>
+                            `}
                             <div class="volume-info">
                                 <div class="volume-label">Total Volume</div>
                                 <div class="volume-value">${formatVolume(market.volumeNum)}</div>
